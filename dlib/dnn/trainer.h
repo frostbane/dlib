@@ -310,15 +310,14 @@ namespace dlib
                 epoch_iteration < max_num_epochs && learning_rate >= min_learning_rate; 
                 ++epoch_iteration)
             {
-                using namespace std::chrono;
-                last_time = system_clock::now();
+                last_time = std::chrono::system_clock::now();
                 clear_average_loss();
                 for (; epoch_pos < data.size() && learning_rate >= min_learning_rate; epoch_pos += mini_batch_size)
                 {
                     if (verbose)
                     {
-                        auto now_time = system_clock::now();
-                        if (now_time-last_time > seconds(20))
+                        auto now_time = std::chrono::system_clock::now();
+                        if (now_time-last_time > std::chrono::seconds(20))
                         {
                             last_time = now_time;
                             auto iter = epoch_iteration + epoch_pos/(double)data.size();
@@ -368,15 +367,14 @@ namespace dlib
                 epoch_iteration < max_num_epochs && learning_rate >= min_learning_rate; 
                 ++epoch_iteration)
             {
-                using namespace std::chrono;
-                last_time = system_clock::now();
+                last_time = std::chrono::system_clock::now();
                 clear_average_loss();
                 for (; epoch_pos < data.size() && learning_rate >= min_learning_rate; epoch_pos += mini_batch_size)
                 {
                     if (verbose)
                     {
-                        auto now_time = system_clock::now();
-                        if (now_time-last_time > seconds(20))
+                        auto now_time = std::chrono::system_clock::now();
+                        if (now_time-last_time > std::chrono::seconds(20))
                         {
                             last_time = now_time;
                             auto iter = epoch_iteration + epoch_pos/(double)data.size();
@@ -1061,7 +1059,7 @@ namespace dlib
                     // lower one instead.
                     if (prob_loss_increasing_thresh >= prob_loss_increasing_thresh_max_value)
                     {
-                        if (verbose)
+                        if (verbose && learning_rate_shrink != 1)
                             std::cout << "(and while at it, also shrinking the learning rate)" << std::endl;
 
                         learning_rate = learning_rate_shrink * learning_rate;
@@ -1121,7 +1119,7 @@ namespace dlib
             }
 
             // if we haven't seen much data yet then just say false.
-            if (gradient_updates_since_last_sync < 30)
+            if (previous_loss_values_to_keep_until_disk_sync.size() < 30)
                 return false;
 
             // if the loss is very likely to be increasing then return true
@@ -1199,6 +1197,8 @@ namespace dlib
 
             const auto prev_dev = dlib::cuda::get_device();
 
+            const bool has_unsupervised_loss = std::is_same<no_label_type, training_label_type>::value;
+
             double j = 0;
 
             for (size_t i = 0; i < devs; ++i)
@@ -1211,7 +1211,8 @@ namespace dlib
                 if (start < stop)
                 {
                     devices[i]->net.to_tensor(dbegin+start, dbegin+stop, job.t[i]);
-                    job.labels[i].assign(lbegin+start, lbegin+stop);
+                    if (!has_unsupervised_loss)
+                        job.labels[i].assign(lbegin+start, lbegin+stop);
                     job.have_data[i] = true;
                 }
                 else
@@ -1263,9 +1264,8 @@ namespace dlib
         {
             if (verbose)
             {
-                using namespace std::chrono;
-                auto now_time = system_clock::now();
-                if (now_time-last_time > seconds(40))
+                auto now_time = std::chrono::system_clock::now();
+                if (now_time-last_time > std::chrono::seconds(40))
                 {
                     last_time = now_time;
                     std::cout << "step#: " << rpad(cast_to_string(train_one_step_calls),epoch_string_pad) << "  " 
@@ -1363,7 +1363,11 @@ namespace dlib
         net_type temp = trainer.get_net(); // make a copy so that we can clean it without mutating the trainer's net.
         temp.clean();
         serialize(temp, sout);
-        out << "  net size: " << sout.str().size()/1024.0/1024.0 << " MiB" << endl;
+        out << "  net size: " << sout.str().size()/1024.0/1024.0 << " MiB";
+        const auto num_params = count_parameters(temp);
+        if (num_params > 0)
+            out << " (" << num_params << " parameters)";
+        out << endl;
         // Don't include the loss params in the hash since we print them on the next line.
         // They also aren't really part of the "architecture" of the network.
         out << "  net architecture hash: " << md5(cast_to_string(trainer.get_net().subnet())) << endl;

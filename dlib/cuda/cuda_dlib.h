@@ -6,7 +6,7 @@
 
 #include "tensor.h"
 #include "../geometry/rectangle.h"
-#include "../dnn/misc.h"
+#include "../dnn/utilities.h"
 
 namespace dlib
 {
@@ -357,7 +357,29 @@ namespace dlib
             const tensor& gamma,
             tensor& src_grad,
             tensor& gamma_grad,
-            tensor& beta_grad
+            tensor& beta_grad,
+            resizable_tensor& dmeans,
+            resizable_tensor& dvars
+        );
+
+   // -----------------------------------------------------------------------------------
+
+        void rms_normalize(
+            const double eps,
+            resizable_tensor& dest,
+            resizable_tensor& scale,
+            const tensor& src,
+            const tensor& gamma
+        );
+
+        void rms_normalize_gradient(
+            const tensor& gradient_input,
+            const tensor& scale,
+            const tensor& src,
+            const tensor& gamma,
+            tensor& src_grad,
+            tensor& gamma_grad,
+            resizable_tensor& dscale
         );
 
     // -----------------------------------------------------------------------------------
@@ -465,22 +487,50 @@ namespace dlib
 
     // ----------------------------------------------------------------------------------------
 
+        void smelu (
+            tensor& dest,
+            const tensor& src,
+            const float beta
+        );
+
+        void smelu_gradient (
+            tensor& grad,
+            const tensor& dest,
+            const tensor& gradient_input,
+            const float beta
+        );
+
+    // ----------------------------------------------------------------------------------------
+
+        void silu (
+            tensor& dest,
+            const tensor& src
+        );
+
+        void silu_gradient (
+            tensor& grad,
+            const tensor& src,
+            const tensor& gradient_input
+        );
+
+    // ------------------------------------------------------------------------------------
+
         void resize_bilinear (
             tensor& dest,
-            long dest_row_stride,
-            long dest_channel_stride,
+            long long dest_row_stride,
+            long long dest_channel_stride,
             const tensor& src,
-            long src_row_stride,
-            long src_channel_stride
+            long long src_row_stride,
+            long long src_channel_stride
         );
 
         void resize_bilinear_gradient (
             tensor& grad,
-            long grad_row_stride,
-            long grad_channel_stride,
+            long long grad_row_stride,
+            long long grad_channel_stride,
             const tensor& gradient_input,
-            long gradient_input_row_stride,
-            long gradient_input_channel_stride
+            long long gradient_input_row_stride,
+            long long gradient_input_channel_stride
         );
 
         inline void resize_bilinear (
@@ -495,6 +545,41 @@ namespace dlib
 
     // ----------------------------------------------------------------------------------------
 
+        void reorg (
+            bool add_to,
+            tensor& dest,
+            const int row_stride,
+            const int col_stride,
+            const tensor& src
+        );
+
+        void reorg_gradient (
+            bool add_to,
+            tensor& grad,
+            const int row_stride,
+            const int col_stride,
+            const tensor& gradient_input
+        );
+
+    // -----------------------------------------------------------------------------------
+
+        void embeddings(
+            resizable_tensor& dest,
+            const tensor& src,
+            const tensor& embs
+        );
+
+        void embeddings_gradient(
+            const tensor& prev,
+            const tensor& gradient_input,
+            tensor& grads,
+            const tensor& freqs,
+            float learning_rate,
+            bool scale
+        );
+
+    // ----------------------------------------------------------------------------------------
+
         void copy_tensor(
             bool add_to,
             tensor& dest,
@@ -504,6 +589,24 @@ namespace dlib
             size_t count_k
         );
 
+    // ----------------------------------------------------------------------------------------
+
+        void copy_tensor(
+            bool add_to,
+            tensor& dest,
+            size_t dk, size_t dnr, size_t dnc,
+            const tensor& src,
+            size_t sk, size_t snr, size_t snc,
+            size_t k, size_t nr, size_t nc
+        );
+ 
+    // ----------------------------------------------------------------------------------------
+
+        void transpose(
+            bool add_to,
+            tensor& dest,
+            const tensor& src
+        );
 
     // ----------------------------------------------------------------------------------------
 
@@ -663,7 +766,7 @@ namespace dlib
 
                 cuda_data_ptr<float> loss_buf = static_pointer_cast<float>(buf, 1);
                 buf = buf+sizeof(float);
-                const auto weights_offset = subnetwork_output.num_samples() * bytes_per_plane;
+                const auto truth_offset = subnetwork_output.num_samples() * weight_bytes_per_plane;
                 // copy the truth data into a cuda buffer.
                 for (long i = 0; i < subnetwork_output.num_samples(); ++i, ++truth)
                 {
@@ -678,13 +781,13 @@ namespace dlib
                             weights(r, c) = t(r, c).weight;
                         }
                     }
-                    memcpy(buf + i*bytes_per_plane, &labels(0,0), bytes_per_plane);
-                    memcpy(buf + weights_offset + i*weight_bytes_per_plane, &weights(0, 0), weight_bytes_per_plane);
+                    memcpy(buf + truth_offset + i*bytes_per_plane, &labels(0,0), bytes_per_plane);
+                    memcpy(buf + i*weight_bytes_per_plane, &weights(0, 0), weight_bytes_per_plane);
                 }
 
-                auto truth_buf = static_pointer_cast<const uint16_t>(buf, subnetwork_output.num_samples()*image_size);
-                buf = buf+weights_offset;
                 auto weights_buf = static_pointer_cast<const float>(buf, subnetwork_output.num_samples()*image_size);
+                buf = buf+truth_offset;
+                auto truth_buf = static_pointer_cast<const uint16_t>(buf, subnetwork_output.num_samples()*image_size);
 
                 do_work(loss_buf, truth_buf, weights_buf, subnetwork_output, gradient, loss);
             }
